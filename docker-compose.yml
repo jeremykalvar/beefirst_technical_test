@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  smtp-mock:
+    build: ./docker/smtp-mock
+    restart: always
+    ports:
+      - "${SMTP_PORT:-8025}:8025"
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    restart: always
+    depends_on:
+      - db
+      - redis
+      - smtp-mock
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://app:app@db:5432/app}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SMTP_BASE_URL: ${SMTP_BASE_URL:-http://smtp-mock:8025}
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./:/app
+
+volumes:
+  db-data:
