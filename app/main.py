@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.logging import setup_logging
-from app.presentation.routes.health import router as health_router
+from app.presentation.api import api
 from app.settings import get_settings
 
 
@@ -11,7 +11,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Registration API", version="0.1.0")
     app.state.settings = settings
-    app.include_router(health_router)
+    app.include_router(api)
     return app
 
 
