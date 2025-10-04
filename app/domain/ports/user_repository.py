@@ -26,3 +26,11 @@ class UserRepositoryPort(Protocol):
 
     async def set_last_code_sent_at(self, user_id: str, when: datetime) -> None:
         """Update last_code_sent_at for observability."""
+
+    async def get_by_email_with_hash_for_update(
+        self, email: str
+    ) -> tuple[User, str] | None:
+        """
+        Fetch user by email and lock the row for update.
+        Return None if not found.
+        """

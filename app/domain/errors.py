@@ -26,3 +26,15 @@ class UserAlreadyExists(DomainError):
     """User with the given identity already exists (when creation forbids upsert)."""
 
     pass
+
+
+class InvalidCredentials(DomainError):
+    """Invalid credentials."""
+
+    pass
+
+
+class InvalidActivationCode(DomainError):
+    """Invalid activation code."""
+
+    pass
