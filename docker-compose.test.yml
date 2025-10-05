@@ -1,0 +1,5 @@
+services:
+  api:
+    volumes: []   # disable project bind mount for tests
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/app

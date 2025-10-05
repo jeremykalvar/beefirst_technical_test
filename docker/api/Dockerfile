@@ -18,11 +18,14 @@ WORKDIR /app
 # Leverage cache: copy only manifests first
 COPY pyproject.toml poetry.lock* /app/
 
-# Install runtime deps only (exclude dev group; works with PEP 621 layout)
-RUN poetry install --no-ansi --no-root --without dev
+
+# Install runtime deps only 
+RUN poetry install --no-ansi --no-root
 
 # Source is bind-mounted by compose, but copying doesn’t hurt for first run
 COPY . .
 
+RUN chmod +x scripts/wait-for.sh
+
 EXPOSE 8000
-CMD ["uvicorn", "app.main:create_app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
