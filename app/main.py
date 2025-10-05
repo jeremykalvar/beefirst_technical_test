@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.infrastructure.db.pool import get_pool, close_pool
+from app.infrastructure.http.client import close_http_client, open_http_client
 from app.infrastructure.redis_cache.pool import get_redis, close_redis
 from app.logging import setup_logging
 from app.presentation.api import api
@@ -12,9 +13,11 @@ from app.settings import get_settings
 async def lifespan(app: FastAPI):
     get_pool()
     get_redis()
+    await open_http_client()
     try:
         yield
     finally:
+        await close_http_client()
         await close_redis()
         await close_pool()
 
