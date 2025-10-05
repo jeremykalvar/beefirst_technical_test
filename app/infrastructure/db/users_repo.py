@@ -91,10 +91,33 @@ class PgUserRepository(UserRepositoryPort):
             )
 
     async def get_by_email_for_update(self, email: str) -> Optional[User]:
-        raise NotImplementedError
+        sql = """
+        SELECT id, email, status, failed_attempts, last_code_sent_at
+        FROM users
+        WHERE email = LOWER(%s)
+        FOR UPDATE
+        """
+        async with self._conn.cursor() as cur:
+            await cur.execute(sql, (email,))
+            row = await cur.fetchone()
+            if not row:
+                return None
+            uid, eml, status, failed_attempts, last_code_sent_at = row
+            return User(
+                id=str(uid),
+                email=str(eml),
+                status=str(status),
+                failed_attempts=failed_attempts or 0,
+                last_code_sent_at=last_code_sent_at,
+            )
 
     async def set_active(self, user_id: str) -> None:
-        raise NotImplementedError
+        sql = "UPDATE users SET status = 'active' WHERE id = %s"
+        async with self._conn.cursor() as cur:
+            # cast to int for safety; DB id is bigserial
+            await cur.execute(sql, (user_id,))
 
     async def set_last_code_sent_at(self, user_id: str, when: datetime) -> None:
-        raise NotImplementedError
+        sql = "UPDATE users SET last_code_sent_at = %s WHERE id = %s"
+        async with self._conn.cursor() as cur:
+            await cur.execute(sql, (when, user_id))
