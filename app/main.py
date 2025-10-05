@@ -12,6 +12,9 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Registration API", version="0.1.0")
     app.state.settings = settings
     app.include_router(api)
+
+    # TODO: Add custom exception handler
+
     return app
 
 

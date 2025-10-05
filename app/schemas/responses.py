@@ -10,3 +10,7 @@ class UserCreateOut(BaseModel):
 
 class AcceptedOut(BaseModel):
     status: Literal["accepted"] = "accepted"
+
+
+class OkOut(BaseModel):
+    status: Literal["ok"] = "ok"
