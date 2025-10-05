@@ -3,12 +3,16 @@ COMPOSE_DEV := docker-compose.yml
 COMPOSE_TEST := docker-compose.test.yml
 DC := $(COMPOSE) -f $(COMPOSE_DEV)
 DCT := $(COMPOSE) -f $(COMPOSE_DEV) -f $(COMPOSE_TEST)
+BASE_CONTAINER_NAME := beefirst_technical_test
 
-.PHONY: compose-up build-api wait-db migrate test test-all test-ci down
+.PHONY: compose-up build-api wait-db migrate test test-all test-ci down log-api
 
-compose-up:
-	$(DC) up -d db redis smtp-mock
+up:
+	$(DC) up -d
 	@echo "Services up."
+
+build:
+	$(DC) build
 
 build-api:
 	$(DC) build api
@@ -18,6 +22,9 @@ wait-db:
 
 migrate:
 	$(DC) run --rm -T api python -m app.infrastructure.db.migrate up
+
+logs:
+	docker logs $(BASE_CONTAINER_NAME)-$(s)-1 -f
 
 test:
 	# run tests from the image, no bind mounts (via test override)
