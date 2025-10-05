@@ -20,7 +20,7 @@ async def register_user(
     salt_b64, digest_b64 = domain_services.make_code_digest(generated_code)
 
     async with uow as transaction:
-        user = await transaction.users.create_or_update_pending(
+        user = await transaction.db_users.create_or_update_pending(
             normalized_email, hashed_password
         )
         await activation_cache.store_hashed_code(
@@ -34,7 +34,7 @@ async def register_user(
                 "body": "Your code is " + generated_code,
             },
         )
-        await transaction.users.set_last_code_sent_at(
+        await transaction.db_users.set_last_code_sent_at(
             user.id, datetime.now(timezone.utc)
         )
         await transaction.commit()

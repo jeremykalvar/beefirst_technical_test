@@ -10,7 +10,12 @@ def uow():
 
 @pytest.fixture()
 def cache():
-    return FakeActivationCache()
+    return FakeActivationCache(verify_result=True)
+
+
+@pytest.fixture()
+def cache_bad():
+    return FakeActivationCache(verify_result=False)
 
 
 @pytest.fixture()

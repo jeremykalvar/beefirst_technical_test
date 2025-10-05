@@ -16,7 +16,7 @@ async def activate_user(
     normalized_email = email.strip().lower()
 
     async with uow as transaction:
-        record = await transaction.users.get_by_email_with_hash_for_update(
+        record = await transaction.db_users.get_by_email_with_hash_for_update(
             normalized_email
         )
         if not record:
@@ -27,5 +27,5 @@ async def activate_user(
         if not await activation_cache.verify_and_consume(user.id, code):
             raise InvalidActivationCode()
         user.activate()
-        await transaction.users.set_active(user.id)
+        await transaction.db_users.set_active(user.id)
         await transaction.commit()

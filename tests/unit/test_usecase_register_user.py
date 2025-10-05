@@ -14,8 +14,8 @@ async def test_register_user_happy_path(uow, cache, hash_password_stub):
         code_ttl_seconds=60,
     )
 
-    assert uow.users.created_email == "jeremy@example.com"
-    assert uow.users.created_hash == "hashed-s3cret"
+    assert uow.db_users.created_email == "jeremy@example.com"
+    assert uow.db_users.created_hash == "hashed-s3cret"
 
     assert len(cache.calls) == 1
     user_id, salt_b64, digest_b64, ttl = cache.calls[0]
@@ -32,7 +32,10 @@ async def test_register_user_happy_path(uow, cache, hash_password_stub):
     assert payload["to"] == "jeremy@example.com"
     assert "1234" in payload["body"]
 
-    assert uow.users.set_last_code_calls and uow.users.set_last_code_calls[0][0] == "u1"
+    assert (
+        uow.db_users.set_last_code_calls
+        and uow.db_users.set_last_code_calls[0][0] == "u1"
+    )
     assert uow.committed is True
 
 

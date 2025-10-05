@@ -20,7 +20,7 @@ class UnitOfWorkPort(Protocol):
             await tx.commit()
     """
 
-    users: UserRepositoryPort
+    db_users: UserRepositoryPort
     outbox: OutboxRepositoryPort
 
     async def __aenter__(self) -> "UnitOfWorkPort":
