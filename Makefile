@@ -39,6 +39,9 @@ test:
 	# run tests from the image, no bind mounts (via test override)
 	$(DCT) run --rm -T api pytest -q
 
+test-coverage:
+	$(DCT) run --rm -T api pytest -q --cov=app --cov-report=term-missing
+
 test-all: compose-up build-api wait-db migrate test
 
 # convenience: a single entrypoint for CI
