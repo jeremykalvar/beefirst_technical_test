@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import secrets
 from typing import Tuple
+import os
+
 
 DIGEST_ALGO = "sha256"
 SALT_BYTES = 16  # 128-bit random salt for code hashing
@@ -34,13 +36,19 @@ def _digest_with_salt(code: str, salt: bytes) -> bytes:
     return h.digest()
 
 
-def make_code_digest(code: str) -> Tuple[str, str]:
-    """
-    Returns (salt_b64, digest_b64) for the 4-digit code.
-    """
-    salt = secrets.token_bytes(SALT_BYTES)
-    digest = _digest_with_salt(code, salt)
-    return base64.b64encode(salt).decode(), base64.b64encode(digest).decode()
+# def make_code_digest(code: str) -> Tuple[str, str]:
+#     """
+#     Returns (salt_b64, digest_b64) for the 4-digit code.
+#     """
+#     salt = secrets.token_bytes(SALT_BYTES)
+#     digest = _digest_with_salt(code, salt)
+#     return base64.b64encode(salt).decode(), base64.b64encode(digest).decode()
+
+
+def make_code_digest(code: str) -> tuple[str, str]:
+    salt = os.urandom(16)
+    mac = hmac.new(salt, code.encode("utf-8"), hashlib.sha256).digest()
+    return base64.b64encode(salt).decode("utf-8"), base64.b64encode(mac).decode("utf-8")
 
 
 def verify_code_digest(code: str, salt_b64: str, digest_b64: str) -> bool:
