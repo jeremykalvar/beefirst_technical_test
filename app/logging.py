@@ -19,7 +19,7 @@ def setup_logging(level: str = "INFO") -> None:
     handler.setFormatter(UTCJsonFormatter(fmt))
     root.addHandler(handler)
 
-    logging.getLogger("uvicorn").setLevel(level.upper())
-    logging.getLogger("uvicorn.error").setLevel(level.upper())
-    logging.getLogger("uvicorn.access").setLevel("WARNING")
-    logging.getLogger("httpx").setLevel("WARNING")
+    # logging.getLogger("uvicorn").setLevel(level.upper())
+    # logging.getLogger("uvicorn.error").setLevel(level.upper())
+    # logging.getLogger("uvicorn.access").setLevel("WARNING")
+    # logging.getLogger("httpx").setLevel("WARNING")

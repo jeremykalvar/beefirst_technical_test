@@ -10,6 +10,11 @@ services:
       - db-data:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   redis:
     image: redis:7-alpine
@@ -29,9 +34,12 @@ services:
       dockerfile: docker/api/Dockerfile
     restart: always
     depends_on:
-      - db
-      - redis
-      - smtp-mock
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      smtp-mock:
+        condition: service_started
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://app:app@db:5432/app}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -42,6 +50,27 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./:/app
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    working_dir: /app
+    command: ["python", "-m", "app.infrastructure.outbox.worker_main"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      smtp-mock:
+        condition: service_started
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - SMTP_BASE_URL=${SMTP_BASE_URL}
+      - LOG_LEVEL=INFO
+    volumes:
+      - .:/app
 
 volumes:
   db-data:

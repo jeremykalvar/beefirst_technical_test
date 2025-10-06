@@ -17,11 +17,20 @@ build:
 build-api:
 	$(DC) build api
 
+down:
+	$(DC) down -v
+
+stop:
+	$(DC) stop
+
 wait-db:
 	$(DC) run --rm -T api ./scripts/wait-for.sh db:5432 -t 30
 
 migrate:
 	$(DC) run --rm -T api python -m app.infrastructure.db.migrate up
+
+migration:
+	$(DC) run --rm -T api python -m app.infrastructure.db.migrate new $(name)
 
 logs:
 	docker logs $(BASE_CONTAINER_NAME)-$(s)-1 -f
@@ -35,5 +44,3 @@ test-all: compose-up build-api wait-db migrate test
 # convenience: a single entrypoint for CI
 test-ci: test-all
 
-down:
-	$(DC) down -v
