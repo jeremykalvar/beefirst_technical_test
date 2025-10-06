@@ -1,185 +1,191 @@
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, TypedDict
+from dataclasses import dataclass
+from typing import Any, Iterable
 
-import psycopg
+from psycopg import AsyncCursor
 from psycopg_pool import AsyncConnectionPool
 
-from app.domain.ports.email_port import EmailPort
-from app.infrastructure.db.outbox_repo import PgOutboxRepository
-
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.infrastructure.outbox.dispatcher")
 
 
-class Payload(TypedDict, total=False):
-    to: str
-    subject: str
-    body: str
-    idempotency_key: str | None
-
-
+@dataclass(frozen=True)
 class RetryPolicy:
-    """
-    Exponential backoff with a cap.
-    attempts=0 -> base * 2^0,
-    attempts=1 -> base * 2^1, ...
-    Capped to max_delay seconds.
-    """
+    base: int = 2  # base delay (seconds)
+    max_delay: int = 60  # cap (seconds)
 
-    def __init__(self, base: int = 2, max_delay: int = 300) -> None:
-        self.base = base
-        self.max_delay = max_delay
-
-    def next_delay(self, attempts: int) -> int:
+    def compute_delay(self, attempts: int) -> int:
+        # attempts is the *current* number of attempts already made
+        # next delay = min(max_delay, base * 2**(attempts))
         delay = self.base * (2**attempts)
-        return min(delay, self.max_delay)
+        return delay if delay < self.max_delay else self.max_delay
 
 
-@dataclass
 class OutboxDispatcher:
-    pool: AsyncConnectionPool
-    email_adapter: EmailPort
-    batch_size: int = 10
-    poll_interval: float = 1.0
-    retry_policy: RetryPolicy = RetryPolicy()
+    """
+    Polls the outbox table, claims due rows, dispatches them, and marks
+    them as dispatched or reschedules for retry on failure.
+    """
+
+    def __init__(
+        self,
+        *,
+        pool: AsyncConnectionPool,
+        email_adapter,
+        batch_size: int = 10,
+        poll_interval: float = 1.0,
+        retry_policy: RetryPolicy | None = None,
+    ) -> None:
+        self.pool = pool
+        self.email_adapter = email_adapter
+        self.batch_size = batch_size
+        self.poll_interval = poll_interval
+        self.retry_policy = retry_policy or RetryPolicy()
 
     async def run_forever(self) -> None:
         logger.info(
             "outbox dispatcher started",
             extra={"batch_size": self.batch_size, "poll_interval": self.poll_interval},
         )
-        try:
-            while True:
-                processed = await self._process_once()
-                if processed == 0:
-                    logger.debug(
-                        "no due messages; sleeping", extra={"sleep": self.poll_interval}
-                    )
-                    await asyncio.sleep(self.poll_interval)
-        except asyncio.CancelledError:
-            logger.info("outbox dispatcher cancelled; shutting down")
-            raise
+        while True:
+            processed = await self._process_once()
+            # simple throttle: if nothing to do, sleep a bit
+            if processed == 0:
+                import asyncio
+
+                await asyncio.sleep(self.poll_interval)
 
     async def _process_once(self) -> int:
-        # 1) claim
-        async with self.pool.connection() as conn:
-            async with conn.transaction():
-                batch = await self._claim_due_batch(conn)
-
+        """
+        Single iteration:
+        - claim up to batch_size due rows into 'processing'
+        - for each, try to dispatch
+        - mark dispatched or reschedule for retry
+        Returns number of rows it attempted to process (claimed count).
+        """
+        # Claim
+        batch = await self._claim_due_batch(self.batch_size)
         if not batch:
             return 0
 
         logger.info("claimed messages", extra={"count": len(batch)})
 
-        # 2) process
-        processed = 0
+        # Process each message (commit per message)
         for msg in batch:
-            msg_id: str = msg["id"]
-            topic: str = msg["topic"]
-            attempts: int = int(msg["attempts"] or 0)
-
+            msg_id = msg["id"]
+            topic = msg["topic"]
+            attempts = msg["attempts"]
             logger.info(
                 "processing message",
                 extra={"id": msg_id, "topic": topic, "attempts": attempts},
             )
             try:
-                await self._handle(topic, msg["payload"])
-            except Exception as e:
-                delay = self.retry_policy.next_delay(attempts)
+                await self._dispatch(topic, msg["payload"])
+            except Exception as e:  # noqa: BLE001
+                # schedule retry
+                new_attempts = attempts + 1
+                delay = self.retry_policy.compute_delay(attempts)
                 logger.warning(
                     "dispatch failed; scheduling retry",
                     extra={
                         "id": msg_id,
                         "topic": topic,
-                        "attempts": attempts + 1,
+                        "attempts": new_attempts,
                         "retry_in_s": delay,
                     },
                 )
-                async with self.pool.connection() as conn:
-                    async with conn.transaction():
-                        repo = PgOutboxRepository(conn)
-                        await repo.mark_failed(
-                            msg_id, error=repr(e), retry_in_seconds=delay
-                        )
+                await self._mark_failed(msg_id, new_attempts, delay)
             else:
-                logger.info(
-                    "dispatch ok; marking dispatched",
-                    extra={"id": msg_id, "topic": topic},
-                )
-                async with self.pool.connection() as conn:
-                    async with conn.transaction():
-                        repo = PgOutboxRepository(conn)
-                        await repo.mark_dispatched(msg_id)
+                await self._mark_dispatched(msg_id)
 
-            processed += 1
+        return len(batch)
 
-        return processed
-
-    async def _claim_due_batch(
-        self, conn: psycopg.AsyncConnection
-    ) -> List[Dict[str, Any]]:
+    async def _dispatch(self, topic: str, payload: dict[str, Any]) -> None:
         """
-        Atomically claim up to `batch_size` messages that are due:
-          - status='pending'
-          - COALESCE(next_attempt_at, now()) <= now()
-        Flip them to status='processing' and return their data.
-
-        Uses SKIP LOCKED so multiple workers don't fight over the same rows.
-        """
-        sql = """
-            WITH due AS (
-                SELECT id
-                FROM outbox
-                WHERE status = 'pending'
-                AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-                ORDER BY created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT %s
-            )
-            UPDATE outbox o
-            SET status = 'processing',
-                updated_at = NOW()
-            FROM due
-            WHERE o.id = due.id
-            RETURNING o.id, o.topic, o.payload, o.attempts;
-            """
-
-        async with conn.cursor() as cur:
-            await cur.execute(sql, (self.batch_size,))
-            rows = await cur.fetchall()
-
-        # psycopg adapts jsonb -> dict automatically
-        return [
-            {"id": r[0], "topic": r[1], "payload": r[2], "attempts": r[3]} for r in rows
-        ]
-
-    async def _handle(self, topic: str, payload: Dict[str, Any]) -> None:
-        """
-        Route by topic.
-        Add new topics here as you extend the system.
+        Route by topic. For now we only support 'user.verification_code'.
         """
         if topic == "user.verification_code":
-            await self._send_verification_email(payload)  # type: ignore[arg-type]
+            to = payload["to"]
+            subject = payload["subject"]
+            body = payload["body"]
+            await self.email_adapter.send(to=to, subject=subject, body=body)
             return
 
-        raise RuntimeError(f"Unknown topic: {topic!r}")
+        # Unknown topic -> treated as failure to trigger retry path
+        raise RuntimeError(f"unknown topic: {topic}")
 
-    async def _send_verification_email(self, payload: Payload) -> None:
+    async def _claim_due_batch(self, limit: int) -> list[dict[str, Any]]:
         """
-        Expected payload:
-          {
-            "to": "...",
-            "subject": "...",
-            "body": "...",
-            "idempotency_key": "..."   # optional
-          }
+        Atomically move up to `limit` due 'pending' rows into 'processing'
+        and return them.
         """
-        await self.email_adapter.send(
-            to=payload["to"],
-            subject=payload["subject"],
-            body=payload["body"],
-            idempotency_key=payload.get("idempotency_key"),
+        sql = """
+        WITH claimed AS (
+            SELECT id
+            FROM outbox
+            WHERE status = 'pending'
+              AND COALESCE(next_attempt_at, NOW()) <= NOW()
+            ORDER BY created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT %s
+        ),
+        updated AS (
+            UPDATE outbox o
+            SET status = 'processing', updated_at = NOW()
+            FROM claimed c
+            WHERE o.id = c.id
+            RETURNING o.id, o.topic, o.payload, o.attempts
         )
+        SELECT id, topic, payload, attempts
+        FROM updated
+        ORDER BY id;
+        """
+        async with self.pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:  # type: AsyncCursor
+                    await cur.execute(sql, (limit,))
+                    rows = await cur.fetchall()
+
+        batch: list[dict[str, Any]] = []
+        for r in rows or ():
+            batch.append(
+                {
+                    "id": r[0],
+                    "topic": r[1],
+                    "payload": r[2],
+                    "attempts": r[3],
+                }
+            )
+        return batch
+
+    async def _mark_dispatched(self, msg_id: int) -> None:
+        sql = """
+        UPDATE outbox
+        SET status = 'dispatched',
+            updated_at = NOW()
+        WHERE id = %s;
+        """
+        async with self.pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(sql, (msg_id,))
+
+    async def _mark_failed(
+        self, msg_id: int, attempts: int, delay_seconds: int
+    ) -> None:
+        """
+        Move message back to 'pending', bump attempts, and set a next_attempt_at in the future.
+        """
+        sql = """
+        UPDATE outbox
+        SET status = 'pending',
+            attempts = %s,
+            next_attempt_at = NOW() + make_interval(secs => %s),
+            updated_at = NOW()
+        WHERE id = %s;
+        """
+        async with self.pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(sql, (attempts, delay_seconds, msg_id))

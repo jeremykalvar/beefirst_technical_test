@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Any
 from app.domain.entities import User
 
 
@@ -90,3 +92,77 @@ class FakeUoW:
 
     async def rollback(self) -> None:
         self.rolled_back = True
+
+
+class FakeEmailOK:
+    def __init__(self):
+        self.calls: list[dict[str, Any]] = []
+
+    async def send(
+        self, *, to: str, subject: str, body: str, idempotency_key=None
+    ) -> None:
+        self.calls.append(
+            {
+                "to": to,
+                "subject": subject,
+                "body": body,
+                "idempotency_key": idempotency_key,
+            }
+        )
+
+
+class FakeEmailFlaky:
+    def __init__(self, fail_first: bool = True):
+        self.calls: int = 0
+        self.fail_first = fail_first
+
+    async def send(
+        self, *, to: str, subject: str, body: str, idempotency_key=None
+    ) -> None:
+        self.calls += 1
+        if self.fail_first and self.calls == 1:
+            raise RuntimeError("boom once")
+
+
+class FakeSessions:
+    def __init__(self) -> None:
+        self._store: dict[str, str] = {}
+        self._next = 0
+
+    async def create(self, user_id: str) -> str:
+        self._next += 1
+        token = f"tok-{self._next}"
+        self._store[token] = user_id
+        return token
+
+    async def get(self, token: str) -> str | None:
+        return self._store.get(token)
+
+    async def revoke(self, token: str) -> None:
+        self._store.pop(token, None)
+
+
+@dataclass
+class FakeAuthUsersRepo:
+    by_email: dict[str, tuple[User, str]]
+    by_id: dict[str, User]
+
+    async def get_by_email_with_hash(self, email: str) -> tuple[User, str] | None:
+        return self.by_email.get(email)
+
+    async def get_by_id(self, user_id: str) -> User | None:
+        return self.by_id.get(user_id)
+
+
+class FakeUoWAuth:
+    def __init__(self, repo: FakeAuthUsersRepo) -> None:
+        self.db_users = repo
+
+    async def __aenter__(self) -> "FakeUoWAuth":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def commit(self) -> None:
+        return None
