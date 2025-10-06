@@ -5,7 +5,7 @@ DC := $(COMPOSE) -f $(COMPOSE_DEV)
 DCT := $(COMPOSE) -f $(COMPOSE_DEV) -f $(COMPOSE_TEST)
 BASE_CONTAINER_NAME := beefirst_technical_test
 
-.PHONY: compose-up build-api wait-db migrate test test-all test-ci down log-api
+.PHONY: compose-up build-api wait-db migrate test test-all test-ci down log-api logs
 
 up:
 	$(DC) up -d
