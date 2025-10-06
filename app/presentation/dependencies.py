@@ -11,6 +11,7 @@ from app.infrastructure.email.http_smtp_adapter import HttpSmtpEmailAdapter
 from app.infrastructure.http.client import get_http_client
 from app.infrastructure.redis_cache.activation_cache import RedisActivationCache
 from app.infrastructure.redis_cache.pool import get_redis
+from app.infrastructure.redis_cache.sessions import RedisSessions
 from app.infrastructure.security.password import hash_password, verify_password
 from app.settings import get_settings
 
@@ -38,3 +39,7 @@ def get_code_ttl_seconds() -> int:
 def get_email_port(request: Request) -> EmailPort:
     # This is set in app.main lifespan()
     return request.app.state.email_adapter
+
+
+def get_sessions() -> RedisSessions:
+    return RedisSessions(get_redis(), ttl_seconds=get_settings().session_ttl_seconds)

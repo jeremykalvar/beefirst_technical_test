@@ -21,15 +21,20 @@ def get_pool() -> AsyncConnectionPool:
     """
     global _pool
     if _pool is None:
-        dsn = _add_connect_timeout(get_settings().database_url, seconds=3)
         _pool = AsyncConnectionPool(
-            dsn,
+            get_settings().database_url,
             min_size=1,
             max_size=10,
             timeout=5,
-            open=False,
+            open=False,  # created closed; caller decides when to open
         )
     return _pool
+
+
+async def open_pool() -> AsyncConnectionPool:
+    pool = get_pool()
+    await pool.open()
+    return pool
 
 
 async def close_pool() -> None:

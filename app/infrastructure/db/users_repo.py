@@ -121,3 +121,23 @@ class PgUserRepository(UserRepositoryPort):
         sql = "UPDATE users SET last_code_sent_at = %s WHERE id = %s"
         async with self._conn.cursor() as cur:
             await cur.execute(sql, (when, user_id))
+
+    async def get_by_email_with_hash(self, email: str) -> tuple[User, str] | None:
+        norm = email.strip().lower()
+        sql = "SELECT id, email, status, password_hash FROM users WHERE email = %s"
+        async with self._conn.cursor() as cur:
+            await cur.execute(sql, (norm,))
+            row = await cur.fetchone()
+        if not row:
+            return None
+        u = User(id=str(row[0]), email=row[1], status=row[2])
+        return u, row[3]
+
+    async def get_by_id(self, user_id: str) -> User | None:
+        sql = "SELECT id, email, status FROM users WHERE id = %s"
+        async with self._conn.cursor() as cur:
+            await cur.execute(sql, (user_id,))
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return User(id=str(row[0]), email=row[1], status=row[2])

@@ -2,21 +2,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 
 from redis.asyncio import Redis
 
 from app.domain.ports.activation_cache import ActivationCachePort
-
-
-def _digest_b64(code: str, salt_b64: str) -> str:
-    """
-    Must match the algorithm used to produce digest_b64 during registration.
-    Here: HMAC-SHA256(code, salt).
-    """
-    salt = base64.b64decode(salt_b64.encode("utf-8"))
-    mac = hmac.new(salt, code.encode("utf-8"), hashlib.sha256).digest()
-    return base64.b64encode(mac).decode("utf-8")
 
 
 _LUA_CONSUME = """
@@ -34,6 +23,17 @@ end
 redis.call('DEL', key)
 return 1
 """
+
+
+def _digest_b64(code: str, salt_b64: str) -> str:
+    """
+    Must match app.domain.services: digest = SHA256(salt || code).
+    """
+    salt = base64.b64decode(salt_b64.encode("utf-8"))
+    h = hashlib.sha256()
+    h.update(salt)
+    h.update(code.encode("utf-8"))
+    return base64.b64encode(h.digest()).decode("utf-8")
 
 
 class RedisActivationCache(ActivationCachePort):

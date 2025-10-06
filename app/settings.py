@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     code_ttl_seconds: int = 60
     code_attempts: int = 5
     resend_throttle_seconds: int = 60
+    session_ttl_seconds: int = 24 * 60 * 60  # 24h
 
     # Worker
     outbox_poll_interval_ms: int = 500

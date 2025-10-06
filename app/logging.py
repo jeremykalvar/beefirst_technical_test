@@ -4,6 +4,13 @@ import time
 
 from pythonjsonlogger import jsonlogger
 
+try:
+    from pythonjsonlogger.json import JsonFormatter
+except Exception:  # fallback for older versions
+    from pythonjsonlogger import jsonlogger
+
+    JsonFormatter = jsonlogger.JsonFormatter
+
 
 class UTCJsonFormatter(jsonlogger.JsonFormatter):
     converter = time.gmtime
