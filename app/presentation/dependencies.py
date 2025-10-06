@@ -1,12 +1,18 @@
 from typing import Callable
 
+from fastapi import Request
+
 from app.domain.ports.activation_cache import ActivationCachePort
+from app.domain.ports.email_port import EmailPort
 from app.domain.ports.unit_of_work import UnitOfWorkPort
 from app.infrastructure.db.pool import get_pool
 from app.infrastructure.db.uow import PgUnitOfWork
+from app.infrastructure.email.http_smtp_adapter import HttpSmtpEmailAdapter
+from app.infrastructure.http.client import get_http_client
 from app.infrastructure.redis_cache.activation_cache import RedisActivationCache
 from app.infrastructure.redis_cache.pool import get_redis
 from app.infrastructure.security.password import hash_password, verify_password
+from app.settings import get_settings
 
 
 def get_uow() -> UnitOfWorkPort:
@@ -26,4 +32,9 @@ def get_verify_password() -> Callable[[str, str], bool]:
 
 
 def get_code_ttl_seconds() -> int:
-    return 60
+    return get_settings().code_ttl_seconds
+
+
+def get_email_port(request: Request) -> EmailPort:
+    # This is set in app.main lifespan()
+    return request.app.state.email_adapter

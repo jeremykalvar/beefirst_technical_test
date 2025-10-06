@@ -1,21 +1,12 @@
 from __future__ import annotations
 
 from typing import Optional, Dict
-
 import httpx
 
 from app.domain.ports.email_port import EmailPort
 
 
 class HttpSmtpEmailAdapter(EmailPort):
-    """
-    Concrete EmailPort that talks to a simple SMTP-mock HTTP service.
-
-    - POSTs JSON to /send on the SMTP mock (e.g. http://smtp-mock:8080/send).
-    - Raises RuntimeError on any network error or non-2xx response.
-    - Optionally attaches an Idempotency-Key header if provided.
-    """
-
     def __init__(
         self,
         base_url: str,
@@ -24,11 +15,10 @@ class HttpSmtpEmailAdapter(EmailPort):
         timeout: float = 5.0,
         send_path: str = "/send",
     ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._send_path = send_path if send_path.startswith("/") else f"/{send_path}"
         self._owns_client: bool = client is None
-        self._client: httpx.AsyncClient = client or httpx.AsyncClient(
-            base_url=base_url, timeout=timeout
-        )
-        self._send_path: str = send_path
+        self._client: httpx.AsyncClient = client or httpx.AsyncClient(timeout=timeout)
 
     async def send(
         self,
@@ -42,20 +32,17 @@ class HttpSmtpEmailAdapter(EmailPort):
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
 
+        url = f"{self._base_url}{self._send_path}"
         payload = {"to": to, "subject": subject, "body": body}
 
         try:
-            response = await self._client.post(
-                self._send_path, json=payload, headers=headers
-            )
-        except httpx.RequestError as e:
+            resp = await self._client.post(url, json=payload, headers=headers)
+            if not (200 <= resp.status_code < 300):
+                text = resp.text[:200]
+                raise RuntimeError(f"SMTP responded {resp.status_code}: {text}")
+        except httpx.HTTPError as e:
             raise RuntimeError(f"SMTP HTTP error: {e}") from e
 
-        if 200 <= response.status_code < 300:
-            text = response.text[:200]
-            raise RuntimeError(f"SMTP responded {response.status_code}: {text}")
-
     async def aclose(self) -> None:
-        """Close the underlying HTTP client if we created it."""
         if self._owns_client:
             await self._client.aclose()
